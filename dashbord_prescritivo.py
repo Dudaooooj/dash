@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 
+st.set_page_config(page_title="Dashboard Prescritivo de Retenção", layout="wide")
+
 st.markdown(
     """
     <style>
@@ -19,10 +21,10 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 # =========================================================
 # CONFIG
 # =========================================================
-
 MAPA_COR = {
     "AÇÃO BARATA": "#F4A261",
     "AÇÃO MÉDIA": "#6EA8BD",
@@ -31,6 +33,10 @@ MAPA_COR = {
 }
 
 ORDEM_ESTRATEGIA = ["AÇÃO BARATA", "AÇÃO MÉDIA", "AÇÃO FORTE", "IGNORAR"]
+
+CAMINHO_BUDGET = "dados/df_budget_test.csv"
+CAMINHO_SCORE = "dados/df_score_dashboard_test.csv"
+CAMINHO_ERRO = "dados/df_erro_modelo.parquet"
 
 
 # =========================================================
@@ -90,12 +96,18 @@ def carregar_dados(caminho: str):
         else:
             condicoes.append(pd.Series(False, index=df.index))
 
+        if "media_valor_6m" in df.columns:
+            condicoes.append(df["media_valor_6m"] >= df["media_valor_6m"].quantile(0.75))
+        else:
+            condicoes.append(pd.Series(False, index=df.index))
+
         df["motivo_prescricao"] = np.select(
             condicoes,
             [
                 "Alto risco e alto valor",
                 "Atraso recorrente",
-                "Cliente recente"
+                "Cliente recente",
+                "Cliente de alto valor"
             ],
             default="Prioridade econômica"
         )
@@ -117,14 +129,17 @@ def carregar_dados(caminho: str):
 
     return df
 
+
 # =========================================================
 # HELPERS
 # =========================================================
 def coluna_existe(df, col):
     return col in df.columns
 
+
 def formatar_moeda(v):
     return f"R$ {v:,.0f}"
+
 
 def resumo_estrategia(df):
     if not {"estrategia", "id_cliente_servico", "custo", "valor_esperado"}.issubset(df.columns):
@@ -152,17 +167,41 @@ def resumo_estrategia(df):
     return resumo
 
 
+def criar_persona_risco(df):
+    df = df.copy()
+
+    if "persona_risco" in df.columns:
+        return df
+
+    score_alto = df["prob_churn"] >= df["prob_churn"].quantile(0.80) if "prob_churn" in df.columns else pd.Series(False, index=df.index)
+    valor_alto = df["valor_cliente_6m"] >= df["valor_cliente_6m"].quantile(0.75) if "valor_cliente_6m" in df.columns else pd.Series(False, index=df.index)
+    atraso_alto = df["freq_atraso_6m"] >= 3 if "freq_atraso_6m" in df.columns else pd.Series(False, index=df.index)
+    rel_curto = df["tempo_relacionamento_meses_corte"] <= 12 if "tempo_relacionamento_meses_corte" in df.columns else pd.Series(False, index=df.index)
+    aceleracao = df["aceleracao_atraso"] > 0 if "aceleracao_atraso" in df.columns else pd.Series(False, index=df.index)
+    sem_trafego = df["tem_trafego"] == 0 if "tem_trafego" in df.columns else pd.Series(False, index=df.index)
+
+    condicoes = [
+        rel_curto & atraso_alto,
+        (~rel_curto) & aceleracao & score_alto,
+        valor_alto & score_alto,
+        (~valor_alto) & atraso_alto,
+        sem_trafego & score_alto,
+    ]
+
+    escolhas = [
+        "Novo com atraso precoce",
+        "Cliente consolidado em deterioração",
+        "Alto valor em risco",
+        "Baixo valor com atraso recorrente",
+        "Possível abandono de uso"
+    ]
+
+    df["persona_risco"] = np.select(condicoes, escolhas, default="Outros perfis")
+    return df
+
+
 def aplicar_filtros(df):
     st.sidebar.title("Filtros")
-
-    st.sidebar.markdown("### Carteira")
-
-
-    st.sidebar.markdown("### Perfil")
- 
-
-    st.sidebar.markdown("### Simulação")
-
 
     df_f = df.copy()
 
@@ -172,11 +211,29 @@ def aplicar_filtros(df):
         if sel:
             df_f = df_f[df_f["estrategia"].isin(sel)]
 
+    if coluna_existe(df_f, "persona_risco"):
+        opcoes = sorted(df_f["persona_risco"].dropna().astype(str).unique().tolist())
+        sel = st.sidebar.multiselect("Persona", opcoes, default=opcoes)
+        if sel:
+            df_f = df_f[df_f["persona_risco"].astype(str).isin(sel)]
+
     if coluna_existe(df_f, "faixa_risco"):
         opcoes = [x for x in ["0-20%", "20-40%", "40-60%", "60-80%", "80-100%"] if x in df_f["faixa_risco"].astype(str).unique()]
         sel = st.sidebar.multiselect("Faixa de risco", opcoes, default=opcoes)
         if sel:
             df_f = df_f[df_f["faixa_risco"].astype(str).isin(sel)]
+
+    if coluna_existe(df_f, "cidade"):
+        opcoes = sorted(df_f["cidade"].dropna().astype(str).unique().tolist())
+        sel = st.sidebar.multiselect("Cidade", opcoes, default=[])
+        if sel:
+            df_f = df_f[df_f["cidade"].astype(str).isin(sel)]
+
+    if coluna_existe(df_f, "regiao"):
+        opcoes = sorted(df_f["regiao"].dropna().astype(str).unique().tolist())
+        sel = st.sidebar.multiselect("Região", opcoes, default=[])
+        if sel:
+            df_f = df_f[df_f["regiao"].astype(str).isin(sel)]
 
     if coluna_existe(df_f, "bairro"):
         opcoes = sorted(df_f["bairro"].dropna().astype(str).unique().tolist())
@@ -190,11 +247,11 @@ def aplicar_filtros(df):
         if sel:
             df_f = df_f[df_f["nome_plano"].astype(str).isin(sel)]
 
-    if coluna_existe(df_f, "fase_cliente"):
-        opcoes = sorted(df_f["fase_cliente"].dropna().astype(str).unique().tolist())
-        sel = st.sidebar.multiselect("Fase do cliente", opcoes, default=[])
+    if coluna_existe(df_f, "canal_sugerido"):
+        opcoes = sorted(df_f["canal_sugerido"].dropna().astype(str).unique().tolist())
+        sel = st.sidebar.multiselect("Canal sugerido", opcoes, default=[])
         if sel:
-            df_f = df_f[df_f["fase_cliente"].astype(str).isin(sel)]
+            df_f = df_f[df_f["canal_sugerido"].astype(str).isin(sel)]
 
     if coluna_existe(df_f, "prob_churn"):
         intervalo = st.sidebar.slider(
@@ -223,7 +280,6 @@ def aplicar_simulacao_budget(df):
     st.sidebar.subheader("Simulação de orçamento")
 
     usar_simulacao = st.sidebar.checkbox("Ativar simulação", value=False)
-
 
     if not usar_simulacao:
         return df
@@ -262,7 +318,7 @@ def aplicar_simulacao_budget(df):
 
 
 # =========================================================
-# VISUALS
+# VISUAIS
 # =========================================================
 def render_kpis(df):
     clientes = len(df)
@@ -270,145 +326,18 @@ def render_kpis(df):
     retorno_total = df["valor_esperado"].sum() if coluna_existe(df, "valor_esperado") else 0
     roi_total = retorno_total / custo_total if custo_total > 0 else 0
     ticket_medio = df["valor_cliente_6m"].mean() if coluna_existe(df, "valor_cliente_6m") else 0
+    pct_acionados = (df["estrategia"] != "IGNORAR").mean() * 100 if "estrategia" in df.columns else 0
 
-    top_10_pct = max(int(len(df) * 0.10), 1)
-    retorno_top10 = (
-        df.sort_values("valor_esperado", ascending=False)["valor_esperado"].head(top_10_pct).sum()
-        if coluna_existe(df, "valor_esperado") else 0
-    )
-    perc_top10 = (retorno_top10 / retorno_total * 100) if retorno_total > 0 else 0
-
-    if "estrategia" in df.columns:
-        pct_acionados = (df["estrategia"] != "IGNORAR").mean() * 100
-    else:
-        pct_acionados = 0
-
-    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Clientes", f"{clientes:,.0f}")
     c2.metric("Custo total", formatar_moeda(custo_total))
     c3.metric("Retorno esperado", formatar_moeda(retorno_total))
     c4.metric("ROI total", f"{roi_total:.2f}")
-    c5.metric("Ticket médio 6m", formatar_moeda(ticket_medio))
-    c6.metric("Retorno no top 10%", f"{perc_top10:.1f}%")
-    c7.metric("% acionados", f"{pct_acionados:.1f}%")
+    c5.metric("% acionados", f"{pct_acionados:.1f}%")
 
-def render_funil_prescritivo(df):
-    if not {"estrategia", "prob_churn"}.issubset(df.columns):
-        st.info("Funil prescritivo indisponível.")
-        return
-
-    total = len(df)
-    acionados = (df["estrategia"] != "IGNORAR").sum()
-    alto_risco = (df["prob_churn"] >= 0.8).sum()
-    acao_forte = (df["estrategia"] == "AÇÃO FORTE").sum()
-
-    funil = pd.DataFrame({
-        "etapa": ["Base filtrada", "Acionados", "Alto risco", "Ação forte"],
-        "clientes": [total, acionados, alto_risco, acao_forte]
-    })
-
-    fig = px.funnel(
-        funil,
-        x="clientes",
-        y="etapa",
-        title="Funil Prescritivo"
-    )
-    st.plotly_chart(fig, width="stretch")
-
-def render_heatmap_risco_estrategia(df):
-    if not {"faixa_risco", "estrategia", "id_cliente_servico"}.issubset(df.columns):
-        st.info("Heatmap risco x estratégia indisponível.")
-        return
-
-    heat = df.pivot_table(
-        index="faixa_risco",
-        columns="estrategia",
-        values="id_cliente_servico",
-        aggfunc="count",
-        fill_value=0
-    )
-
-    heat = heat.reindex(
-        index=["0-20%", "20-40%", "40-60%", "60-80%", "80-100%"],
-        fill_value=0
-    )
-
-    cols_presentes = [c for c in ORDEM_ESTRATEGIA if c in heat.columns]
-    heat = heat[cols_presentes]
-
-    fig = px.imshow(
-        heat,
-        text_auto=True,
-        aspect="auto",
-        title="Distribuição de Clientes por Faixa de Risco e Estratégia"
-    )
-    st.plotly_chart(fig, width="stretch")
-
-def render_pareto_retorno(df):
-    if "valor_esperado" not in df.columns or df["valor_esperado"].sum() <= 0:
-        st.info("Pareto de retorno indisponível.")
-        return
-
-    pareto = df.sort_values("valor_esperado", ascending=False).copy()
-    pareto["ordem"] = np.arange(1, len(pareto) + 1)
-    pareto["retorno_acum"] = pareto["valor_esperado"].cumsum()
-    pareto["retorno_acum_pct"] = pareto["retorno_acum"] / pareto["valor_esperado"].sum() * 100
-    pareto["clientes_pct"] = pareto["ordem"] / len(pareto) * 100
-
-    fig = px.line(
-        pareto,
-        x="clientes_pct",
-        y="retorno_acum_pct",
-        title="Concentração do Retorno Esperado (Pareto)"
-    )
-    fig.update_layout(
-        xaxis_title="% dos clientes priorizados",
-        yaxis_title="% do retorno acumulado"
-    )
-    fig.add_hline(y=80, line_dash="dash")
-    st.plotly_chart(fig, width="stretch")
-
-def render_scatter_quadrantes(df):
-    if not {"prob_churn", "valor_esperado", "estrategia"}.issubset(df.columns):
-        st.info("Mapa de quadrantes indisponível.")
-        return
-
-    mediana_valor = df["valor_esperado"].median()
-    corte_risco = 0.6
-
-    hover = [c for c in [
-        "id_cliente_servico",
-        "bairro",
-        "nome_plano",
-        "fase_cliente",
-        "motivo_prescricao"
-    ] if c in df.columns]
-
-    size_col = "valor_cliente_6m" if "valor_cliente_6m" in df.columns else None
-
-    fig = px.scatter(
-        df,
-        x="prob_churn",
-        y="valor_esperado",
-        color="estrategia",
-        size=size_col,
-        hover_data=hover,
-        color_discrete_map=MAPA_COR,
-        title="Quadrantes de Priorização"
-    )
-
-    fig.add_vline(x=corte_risco, line_dash="dash", line_color="gray")
-    fig.add_hline(y=mediana_valor, line_dash="dash", line_color="gray")
-
-    st.plotly_chart(fig, width="stretch")
-
-    st.caption(
-        "Leitura sugerida: canto superior direito = maior prioridade "
-        "(alto risco e alto valor esperado)."
-    )
 
 def render_resumo_recomendacoes(df):
-    st.markdown("### Recomendações automáticas")
+    st.markdown("### Leitura executiva")
 
     resumo = resumo_estrategia(df)
 
@@ -418,27 +347,23 @@ def render_resumo_recomendacoes(df):
         if not resumo_valido.empty:
             estrat_top = resumo_valido.sort_values("roi", ascending=False).iloc[0]["estrategia"]
 
-    bairro_top = "-"
-    if "bairro" in df.columns and not df["bairro"].dropna().empty:
-        bairro_top = df["bairro"].astype(str).value_counts().idxmax()
-
-    plano_top = "-"
-    if "nome_plano" in df.columns and not df["nome_plano"].dropna().empty:
-        plano_top = df["nome_plano"].astype(str).value_counts().idxmax()
-
-    motivo_top = "-"
-    if "motivo_prescricao" in df.columns and not df["motivo_prescricao"].dropna().empty:
-        motivo_top = df["motivo_prescricao"].astype(str).value_counts().idxmax()
+    bairro_top = df["bairro"].astype(str).value_counts().idxmax() if "bairro" in df.columns and not df["bairro"].dropna().empty else "-"
+    cidade_top = df["cidade"].astype(str).value_counts().idxmax() if "cidade" in df.columns and not df["cidade"].dropna().empty else "-"
+    persona_top = df["persona_risco"].astype(str).value_counts().idxmax() if "persona_risco" in df.columns and not df["persona_risco"].dropna().empty else "-"
+    canal_top = df["canal_sugerido"].astype(str).value_counts().idxmax() if "canal_sugerido" in df.columns and not df["canal_sugerido"].dropna().empty else "-"
 
     c1, c2 = st.columns(2)
     with c1:
         st.write(f"**Estratégia com maior ROI:** {estrat_top}")
+        st.write(f"**Cidade com maior concentração:** {cidade_top}")
         st.write(f"**Bairro com maior concentração:** {bairro_top}")
     with c2:
-        st.write(f"**Plano mais recorrente:** {plano_top}")
-        st.write(f"**Motivo prescritivo dominante:** {motivo_top}")
-def render_aba_executiva(df):
-    st.subheader("Visão Executiva")
+        st.write(f"**Persona dominante:** {persona_top}")
+        st.write(f"**Canal sugerido dominante:** {canal_top}")
+
+
+def render_aba_resumo(df):
+    st.subheader("Resumo Executivo")
     render_kpis(df)
     render_resumo_recomendacoes(df)
 
@@ -460,7 +385,7 @@ def render_aba_executiva(df):
             title="Clientes por Estratégia"
         )
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
     with col2:
         fig = px.bar(
@@ -474,66 +399,96 @@ def render_aba_executiva(df):
         )
         fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, width="stretch")
-
-    col3, col4 = st.columns(2)
-
-    with col3:
-        fig = go.Figure()
-        fig.add_bar(x=resumo["estrategia"], y=resumo["custo_total"], name="Custo", marker_color="#6EA8BD")
-        fig.add_bar(x=resumo["estrategia"], y=resumo["retorno_total"], name="Retorno", marker_color="#F4A261")
-        fig.update_layout(barmode="group", title="Custo vs Retorno")
-        st.plotly_chart(fig, width="stretch")
-
-    with col4:
-        fig = px.bar(
-            resumo,
-            x="estrategia",
-            y="roi",
-            color="estrategia",
-            color_discrete_map=MAPA_COR,
-            text="roi",
-            title="ROI por Estratégia"
-        )
-        fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, width="stretch")
-
-    col5, col6 = st.columns(2)
-
-    with col5:
-        render_funil_prescritivo(df)
-
-    with col6:
-        render_heatmap_risco_estrategia(df)
+        st.plotly_chart(fig, use_container_width=True)
 
 
-def render_aba_analitica(df):
-    st.subheader("Visão Analítica")
+def render_aba_personas(df):
+    st.subheader("Personas e Perfis")
+
+    if "persona_risco" not in df.columns:
+        st.info("Coluna persona_risco não disponível.")
+        return
+
+    persona = df.groupby("persona_risco").agg(
+        clientes=("id_cliente_servico", "count"),
+        retorno_total=("valor_esperado", "sum"),
+        roi_medio=("roi_unitario_calc", "mean"),
+        score_medio=("prob_churn", "mean")
+    ).reset_index().sort_values("retorno_total", ascending=False)
 
     col1, col2 = st.columns(2)
 
     with col1:
-        render_scatter_quadrantes(df)
+        fig = px.bar(
+            persona,
+            x="persona_risco",
+            y="clientes",
+            text="clientes",
+            title="Clientes por Persona"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        if coluna_existe(df, "prob_churn"):
-            fig = px.histogram(
-                df,
-                x="prob_churn",
-                nbins=20,
-                color="estrategia" if coluna_existe(df, "estrategia") else None,
-                color_discrete_map=MAPA_COR,
-                title="Distribuição do Score de Churn"
+        fig = px.bar(
+            persona,
+            x="persona_risco",
+            y="retorno_total",
+            text="retorno_total",
+            title="Retorno Esperado por Persona"
+        )
+        fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
+        st.plotly_chart(fig, use_container_width=True)
+
+    heat = df.pivot_table(
+        index="persona_risco",
+        columns="estrategia",
+        values="id_cliente_servico",
+        aggfunc="count",
+        fill_value=0
+    )
+
+    if not heat.empty:
+        cols_presentes = [c for c in ORDEM_ESTRATEGIA if c in heat.columns]
+        heat = heat[cols_presentes]
+
+        fig = px.imshow(
+            heat,
+            text_auto=True,
+            aspect="auto",
+            title="Persona x Estratégia"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.dataframe(persona, use_container_width=True, hide_index=True)
+
+
+def render_aba_geografia(df):
+    st.subheader("Geografia e Carteira")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if "cidade" in df.columns:
+            top_cidades = (
+                df.groupby("cidade")["valor_esperado"]
+                .sum()
+                .sort_values(ascending=False)
+                .head(10)
+                .reset_index()
             )
-            st.plotly_chart(fig, width="stretch")
-        else:
-            st.info("Coluna prob_churn não disponível.")
+            fig = px.bar(
+                top_cidades.sort_values("valor_esperado"),
+                x="valor_esperado",
+                y="cidade",
+                orientation="h",
+                text="valor_esperado",
+                title="Top 10 Cidades por Retorno Esperado"
+            )
+            fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
+            st.plotly_chart(fig, use_container_width=True)
 
-    col3, col4 = st.columns(2)
-
-    with col3:
-        if coluna_existe(df, "bairro"):
+    with col2:
+        if "bairro" in df.columns:
             top_bairros = (
                 df.groupby("bairro")["valor_esperado"]
                 .sum()
@@ -550,55 +505,93 @@ def render_aba_analitica(df):
                 title="Top 10 Bairros por Retorno Esperado"
             )
             fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
-            st.plotly_chart(fig, width="stretch")
-        else:
-            st.info("Coluna bairro não disponível.")
+            st.plotly_chart(fig, use_container_width=True)
 
-    with col4:
-        if coluna_existe(df, "nome_plano"):
-            top_planos = (
-                df.groupby("nome_plano")["valor_esperado"]
-                .sum()
-                .sort_values(ascending=False)
-                .head(10)
-                .reset_index()
+    if {"regiao", "estrategia", "id_cliente_servico"}.issubset(df.columns):
+        reg = df.pivot_table(
+            index="regiao",
+            columns="estrategia",
+            values="id_cliente_servico",
+            aggfunc="count",
+            fill_value=0
+        )
+        if not reg.empty:
+            cols_presentes = [c for c in ORDEM_ESTRATEGIA if c in reg.columns]
+            reg = reg[cols_presentes]
+
+            fig = px.imshow(
+                reg,
+                text_auto=True,
+                aspect="auto",
+                title="Região x Estratégia"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+
+def render_aba_playbook(df):
+    st.subheader("Playbook de Ação")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if {"persona_risco", "canal_sugerido", "id_cliente_servico"}.issubset(df.columns):
+            canal = (
+                df.groupby(["persona_risco", "canal_sugerido"])["id_cliente_servico"]
+                .count()
+                .reset_index(name="clientes")
             )
             fig = px.bar(
-                top_planos.sort_values("valor_esperado"),
-                x="valor_esperado",
-                y="nome_plano",
-                orientation="h",
-                text="valor_esperado",
-                title="Top 10 Planos por Retorno Esperado"
-            )
-            fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
-            st.plotly_chart(fig, width="stretch")
-        else:
-            st.info("Coluna nome_plano não disponível.")
-
-    col5, col6 = st.columns(2)
-
-    with col5:
-        render_pareto_retorno(df)
-
-    with col6:
-        if coluna_existe(df, "fase_cliente"):
-            fase = df["fase_cliente"].astype(str).value_counts().reset_index()
-            fase.columns = ["fase_cliente", "clientes"]
-            fig = px.bar(
-                fase,
-                x="fase_cliente",
+                canal,
+                x="persona_risco",
                 y="clientes",
-                text="clientes",
-                title="Fase do Cliente"
+                color="canal_sugerido",
+                barmode="group",
+                title="Canal Sugerido por Persona"
             )
-            st.plotly_chart(fig, width="stretch")
-        else:
-            st.info("Coluna fase_cliente não disponível.")
+            st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        if {"persona_risco", "motivo_prescricao", "id_cliente_servico"}.issubset(df.columns):
+            motivo = (
+                df.groupby(["persona_risco", "motivo_prescricao"])["id_cliente_servico"]
+                .count()
+                .reset_index(name="clientes")
+            )
+            fig = px.bar(
+                motivo,
+                x="persona_risco",
+                y="clientes",
+                color="motivo_prescricao",
+                barmode="group",
+                title="Motivo da Prescrição por Persona"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    cols = [c for c in [
+        "prioridade_execucao",
+        "persona_risco",
+        "estrategia",
+        "canal_sugerido",
+        "motivo_prescricao",
+        "valor_esperado",
+        "roi_unitario_calc",
+        "bairro",
+        "cidade",
+        "nome_plano"
+    ] if c in df.columns]
+
+    if cols:
+        st.markdown("### Playbook resumido")
+        base = (
+            df[cols]
+            .sort_values("valor_esperado", ascending=False)
+            .head(30)
+        )
+        st.dataframe(base, use_container_width=True, hide_index=True)
 
 
-def render_aba_operacional(df):
-    st.subheader("Visão Operacional")
+def render_aba_operacao(df):
+    st.subheader("Operação")
 
     if {"id_cliente_servico", "estrategia", "valor_esperado"}.issubset(df.columns):
         top_n = st.slider("Top clientes na tabela rápida", min_value=10, max_value=200, value=50, step=10)
@@ -607,6 +600,7 @@ def render_aba_operacional(df):
             c for c in [
                 "prioridade_execucao",
                 "id_cliente_servico",
+                "persona_risco",
                 "estrategia",
                 "motivo_prescricao",
                 "canal_sugerido",
@@ -629,7 +623,7 @@ def render_aba_operacional(df):
         ]
 
         base = df[colunas].sort_values("valor_esperado", ascending=False).head(top_n)
-        st.dataframe(base, width="stretch", hide_index=True)
+        st.dataframe(base, use_container_width=True, hide_index=True)
 
         csv = df[colunas].sort_values("valor_esperado", ascending=False).to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -638,54 +632,7 @@ def render_aba_operacional(df):
             file_name="base_operacional_filtrada.csv",
             mime="text/csv"
         )
-    else:
-        st.info("Colunas operacionais mínimas não disponíveis.")
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if {"estrategia", "valor_esperado"}.issubset(df.columns):
-            box = px.box(
-                df,
-                x="estrategia",
-                y="valor_esperado",
-                color="estrategia",
-                color_discrete_map=MAPA_COR,
-                title="Distribuição do Valor Esperado por Estratégia"
-            )
-            box.update_layout(showlegend=False)
-            st.plotly_chart(box, width="stretch")
-
-    with col2:
-        if "motivo_prescricao" in df.columns:
-            motivos = df["motivo_prescricao"].value_counts().reset_index()
-            motivos.columns = ["motivo_prescricao", "clientes"]
-            fig = px.bar(
-                motivos,
-                x="motivo_prescricao",
-                y="clientes",
-                text="clientes",
-                title="Motivos de Prescrição"
-            )
-            st.plotly_chart(fig, width="stretch")
-
-
-def render_inconsistencia(df_score, df_erro):
-    st.subheader("Inconsistência do Modelo")
-
-    total = len(df_score)
-    erros = len(df_erro)
-
-    st.metric("Clientes inconsistentes", f"{erros} ({erros/total:.1%})")
-
-    fig = px.histogram(
-        df_score,
-        x="prob_churn",
-        color=df_score["prob_churn"].isin(df_erro["prob_churn"]),
-        title="Distribuição de risco vs inconsistência"
-    )
-
-    st.plotly_chart(fig)
 
 def render_aba_qualidade_modelo(df_score, df_erro):
     st.subheader("Qualidade do Modelo")
@@ -705,7 +652,7 @@ def render_aba_qualidade_modelo(df_score, df_erro):
             nbins=20,
             title="Distribuição do score de churn"
         )
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
     if not df_erro.empty and "prob_churn" in df_erro.columns:
         fig2 = px.histogram(
@@ -714,7 +661,7 @@ def render_aba_qualidade_modelo(df_score, df_erro):
             nbins=20,
             title="Distribuição dos casos inconsistentes"
         )
-        st.plotly_chart(fig2, width="stretch")
+        st.plotly_chart(fig2, use_container_width=True)
 
     cols = [c for c in [
         "id_cliente_servico",
@@ -728,17 +675,14 @@ def render_aba_qualidade_modelo(df_score, df_erro):
     ] if c in df_erro.columns]
 
     if cols:
-        st.dataframe(df_erro[cols].head(100), width="stretch", hide_index=True)
+        st.dataframe(df_erro[cols].head(100), use_container_width=True, hide_index=True)
+
 
 # =========================================================
 # APP
 # =========================================================
-CAMINHO_BUDGET = "dados/df_budget_test.csv"
-CAMINHO_SCORE = "dados/df_score_dashboard_test.csv"
-CAMINHO_ERRO = "dados/df_erro_modelo.parquet"
-
 st.title("📊 Dashboard Prescritivo de Retenção")
-st.caption("Versão profissional em Streamlit — leitura dos arquivos Parquet gerados pelo notebook.")
+st.caption("Versão teste reorganizada para responder melhor às perguntas de persona, território e ação.")
 
 try:
     df_budget = carregar_dados(CAMINHO_BUDGET)
@@ -747,6 +691,10 @@ try:
 except Exception as e:
     st.error(f"Erro ao carregar os arquivos: {e}")
     st.stop()
+
+df_budget = criar_persona_risco(df_budget)
+df_score = criar_persona_risco(df_score)
+
 df_filtrado = aplicar_filtros(df_budget)
 df_simulado = aplicar_simulacao_budget(df_filtrado)
 
@@ -754,21 +702,29 @@ if df_simulado.empty:
     st.warning("Nenhum registro encontrado com os filtros/simulação atuais.")
     st.stop()
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "Visão Executiva",
-    "Visão Analítica",
-    "Visão Operacional",
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "Resumo Executivo",
+    "Personas e Perfis",
+    "Geografia e Carteira",
+    "Playbook de Ação",
+    "Operação",
     "Qualidade do Modelo"
 ])
 
 with tab1:
-    render_aba_executiva(df_simulado)
+    render_aba_resumo(df_simulado)
 
 with tab2:
-    render_aba_analitica(df_simulado)
+    render_aba_personas(df_simulado)
 
 with tab3:
-    render_aba_operacional(df_simulado)
+    render_aba_geografia(df_simulado)
 
 with tab4:
+    render_aba_playbook(df_simulado)
+
+with tab5:
+    render_aba_operacao(df_simulado)
+
+with tab6:
     render_aba_qualidade_modelo(df_score, df_erro)
