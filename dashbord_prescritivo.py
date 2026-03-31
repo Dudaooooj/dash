@@ -634,49 +634,6 @@ def render_aba_operacao(df):
         )
 
 
-def render_aba_qualidade_modelo(df_score, df_erro):
-    st.subheader("Qualidade do Modelo")
-
-    total = len(df_score)
-    inconsistentes = len(df_erro)
-    pct = inconsistentes / total * 100 if total > 0 else 0
-
-    c1, c2 = st.columns(2)
-    c1.metric("Clientes avaliados", f"{total:,.0f}")
-    c2.metric("Inconsistências", f"{inconsistentes:,.0f} ({pct:.1f}%)")
-
-    if "prob_churn" in df_score.columns:
-        fig = px.histogram(
-            df_score,
-            x="prob_churn",
-            nbins=20,
-            title="Distribuição do score de churn"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    if not df_erro.empty and "prob_churn" in df_erro.columns:
-        fig2 = px.histogram(
-            df_erro,
-            x="prob_churn",
-            nbins=20,
-            title="Distribuição dos casos inconsistentes"
-        )
-        st.plotly_chart(fig2, use_container_width=True)
-
-    cols = [c for c in [
-        "id_cliente_servico",
-        "prob_churn",
-        "id_motivo_cancelamento",
-        "bairro",
-        "cidade",
-        "regiao",
-        "nome_plano",
-        "cluster_risco"
-    ] if c in df_erro.columns]
-
-    if cols:
-        st.dataframe(df_erro[cols].head(100), use_container_width=True, hide_index=True)
-
 
 # =========================================================
 # APP
@@ -725,6 +682,3 @@ with tab4:
 
 with tab5:
     render_aba_operacao(df_simulado)
-
-with tab6:
-    render_aba_qualidade_modelo(df_score, df_erro)
