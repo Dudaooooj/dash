@@ -734,7 +734,7 @@ def render_aba_qualidade_modelo(df_score, df_erro):
 # APP
 # =========================================================
 CAMINHO_BUDGET = "dados/df_budget_test.csv"
-CAMINHO_SCORE = "dados/df_score_dashboard.csv"
+CAMINHO_SCORE = "dados/df_score_dashboard_test.csv"
 CAMINHO_ERRO = "dados/df_erro_modelo.parquet"
 
 st.title("📊 Dashboard Prescritivo de Retenção")
