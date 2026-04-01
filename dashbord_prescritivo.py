@@ -199,6 +199,44 @@ def criar_persona_risco(df):
     df["persona_risco"] = np.select(condicoes, escolhas, default="Outros perfis")
     return df
 
+def adicionar_colunas_validacao_teste(df):
+    df = df.copy()
+
+    if "target_churn_0a6m" in df.columns:
+        df["target_churn_0a6m"] = (
+            pd.to_numeric(df["target_churn_0a6m"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
+
+        df["resultado_teste"] = np.where(
+            df["target_churn_0a6m"] == 1,
+            "Target positivo",
+            "Target negativo"
+        )
+
+        if "acionar" in df.columns:
+            df["acerto_acionado"] = np.where(
+                (df["acionar"] == 1) & (df["target_churn_0a6m"] == 1),
+                1,
+                0
+            )
+
+            df["grupo_validacao"] = np.select(
+                [
+                    (df["acionar"] == 1) & (df["target_churn_0a6m"] == 1),
+                    (df["acionar"] == 1) & (df["target_churn_0a6m"] == 0),
+                    (df["acionar"] == 0) & (df["target_churn_0a6m"] == 1),
+                ],
+                [
+                    "Acerto priorizado",
+                    "Priorizado sem target",
+                    "Target não priorizado",
+                ],
+                default="Demais casos"
+            )
+
+    return df
 
 def aplicar_filtros(df):
     st.sidebar.title("Filtros")
@@ -633,8 +671,129 @@ def render_aba_operacao(df):
             mime="text/csv"
         )
 
+def render_aba_validacao_target(df_score):
+    st.subheader("Validação do Target no Teste")
 
+    if not {"target_churn_0a6m", "acionar"}.issubset(df_score.columns):
+        st.info("Colunas de validação do teste não disponíveis.")
+        return
 
+    total = len(df_score)
+    total_target = int(df_score["target_churn_0a6m"].sum())
+    total_acionados = int(df_score["acionar"].sum())
+    acertos = int(((df_score["acionar"] == 1) & (df_score["target_churn_0a6m"] == 1)).sum())
+
+    precision_top = acertos / total_acionados if total_acionados > 0 else 0
+    recall_top = acertos / total_target if total_target > 0 else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Clientes no teste", f"{total:,.0f}")
+    c2.metric("Target positivo", f"{total_target:,.0f}")
+    c3.metric("Acionados", f"{total_acionados:,.0f}")
+    c4.metric("Acertos no top", f"{acertos:,.0f}")
+
+    c5, c6 = st.columns(2)
+    c5.metric("Precisão nos acionados", f"{precision_top:.1%}")
+    c6.metric("Recall do top", f"{recall_top:.1%}")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if "grupo_validacao" in df_score.columns:
+            resumo = df_score["grupo_validacao"].value_counts().reset_index()
+            resumo.columns = ["grupo_validacao", "clientes"]
+
+            fig = px.bar(
+                resumo,
+                x="grupo_validacao",
+                y="clientes",
+                text="clientes",
+                title="Clientes por Grupo de Validação"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        if {"faixa_risco", "target_churn_0a6m"}.issubset(df_score.columns):
+            risco = (
+                df_score.groupby("faixa_risco")["target_churn_0a6m"]
+                .mean()
+                .reset_index(name="taxa_target")
+            )
+
+            fig = px.bar(
+                risco,
+                x="faixa_risco",
+                y="taxa_target",
+                text="taxa_target",
+                title="Taxa Real do Target por Faixa de Risco"
+            )
+            fig.update_traces(texttemplate="%{text:.1%}", textposition="outside")
+            st.plotly_chart(fig, use_container_width=True)
+
+    col3, col4 = st.columns(2)
+
+    with col3:
+        if {"cidade", "target_churn_0a6m"}.issubset(df_score.columns):
+            cidade = (
+                df_score[df_score["target_churn_0a6m"] == 1]
+                .groupby("cidade")["id_cliente_servico"]
+                .count()
+                .sort_values(ascending=False)
+                .head(10)
+                .reset_index(name="targets_positivos")
+            )
+
+            fig = px.bar(
+                cidade,
+                x="cidade",
+                y="targets_positivos",
+                text="targets_positivos",
+                title="Top Cidades com Target Positivo"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    with col4:
+        if {"persona_risco", "target_churn_0a6m"}.issubset(df_score.columns):
+            persona = (
+                df_score.groupby("persona_risco")["target_churn_0a6m"]
+                .mean()
+                .reset_index(name="taxa_target")
+                .sort_values("taxa_target", ascending=False)
+            )
+
+            fig = px.bar(
+                persona,
+                x="persona_risco",
+                y="taxa_target",
+                text="taxa_target",
+                title="Taxa de Target por Persona"
+            )
+            fig.update_traces(texttemplate="%{text:.1%}", textposition="outside")
+            st.plotly_chart(fig, use_container_width=True)
+
+    cols = [c for c in [
+        "id_cliente_servico",
+        "prob_churn",
+        "acionar",
+        "target_churn_0a6m",
+        "resultado_teste",
+        "grupo_validacao",
+        "faixa_risco",
+        "cidade",
+        "bairro",
+        "nome_plano",
+        "persona_risco",
+    ] if c in df_score.columns]
+
+    if cols:
+        st.markdown("### Casos do teste")
+        st.dataframe(
+            df_score[cols]
+            .sort_values(["target_churn_0a6m", "prob_churn"], ascending=[False, False])
+            .head(100),
+            use_container_width=True,
+            hide_index=True
+        )
 # =========================================================
 # APP
 # =========================================================
@@ -651,6 +810,7 @@ except Exception as e:
 
 df_budget = criar_persona_risco(df_budget)
 df_score = criar_persona_risco(df_score)
+df_budget = adicionar_colunas_validacao_teste(df_score)
 
 df_filtrado = aplicar_filtros(df_budget)
 df_simulado = aplicar_simulacao_budget(df_filtrado)
@@ -659,13 +819,15 @@ if df_simulado.empty:
     st.warning("Nenhum registro encontrado com os filtros/simulação atuais.")
     st.stop()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Resumo Executivo",
     "Personas e Perfis",
     "Geografia e Carteira",
     "Playbook de Ação",
     "Operação",
+    "Validação do Target no Teste",
     "Qualidade do Modelo"
+
 ])
 
 with tab1:
@@ -682,3 +844,5 @@ with tab4:
 
 with tab5:
     render_aba_operacao(df_simulado)
+with tab6:
+    render_aba_validacao_target(df_score)
