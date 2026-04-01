@@ -373,7 +373,6 @@ def render_kpis(df):
     c4.metric("ROI total", f"{roi_total:.2f}")
     c5.metric("% acionados", f"{pct_acionados:.1f}%")
 
-
 def render_resumo_recomendacoes(df):
     st.markdown("### Leitura executiva")
 
@@ -399,7 +398,6 @@ def render_resumo_recomendacoes(df):
         st.write(f"**Persona dominante:** {persona_top}")
         st.write(f"**Canal sugerido dominante:** {canal_top}")
 
-
 def render_aba_resumo(df):
     st.subheader("Resumo Executivo")
     render_kpis(df)
@@ -413,32 +411,45 @@ def render_aba_resumo(df):
     col1, col2 = st.columns(2)
 
     with col1:
-        fig = px.bar(
-            resumo,
-            x="estrategia",
-            y="clientes",
-            color="estrategia",
-            color_discrete_map=MAPA_COR,
-            text="clientes",
-            title="Clientes por Estratégia"
-        )
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        if {"estrategia", "clientes"}.issubset(resumo.columns):
+            fig = px.bar(
+                resumo,
+                x="estrategia",
+                y="clientes",
+                color="estrategia",
+                color_discrete_map=MAPA_COR,
+                text="clientes",
+                title="Clientes por Estratégia"
+            )
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        fig = px.bar(
-            resumo,
-            x="estrategia",
-            y="retorno_total",
-            color="estrategia",
-            color_discrete_map=MAPA_COR,
-            text="retorno_total",
-            title="Retorno Esperado por Estratégia"
-        )
-        fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
-        fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-
+        if {"estrategia", "retorno_total"}.issubset(resumo.columns):
+            fig = px.bar(
+                resumo,
+                x="estrategia",
+                y="retorno_total",
+                color="estrategia",
+                color_discrete_map=MAPA_COR,
+                text="retorno_total",
+                title="Retorno Esperado por Estratégia"
+            )
+            fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+        elif {"estrategia", "clientes"}.issubset(resumo.columns):
+            fig = px.bar(
+                resumo,
+                x="estrategia",
+                y="clientes",
+                color="estrategia",
+                color_discrete_map=MAPA_COR,
+                text="clientes",
+                title="Volume por Estratégia"
+            )
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 
 def render_aba_personas(df):
     st.subheader("Personas e Perfis")
@@ -671,6 +682,8 @@ def render_aba_playbook(df):
                 title="Canal Sugerido por Persona"
             )
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Canal sugerido por persona indisponível.")
 
     with col2:
         if {"persona_risco", "motivo_prescricao", "id_cliente_servico"}.issubset(df.columns):
@@ -688,6 +701,8 @@ def render_aba_playbook(df):
                 title="Motivo da Prescrição por Persona"
             )
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Motivo da prescrição por persona indisponível.")
 
     cols = [c for c in [
         "prioridade_execucao",
@@ -697,19 +712,32 @@ def render_aba_playbook(df):
         "motivo_prescricao",
         "valor_esperado",
         "roi_unitario_calc",
+        "roi_unitario",
         "bairro",
         "cidade",
         "nome_plano"
     ] if c in df.columns]
 
-    if cols:
-        st.markdown("### Playbook resumido")
-        base = (
-            df[cols]
-            .sort_values("valor_esperado", ascending=False)
-            .head(30)
-        )
-        st.dataframe(base, use_container_width=True, hide_index=True)
+    if not cols:
+        st.info("Colunas suficientes para o playbook resumido não estão disponíveis.")
+        return
+
+    st.markdown("### Playbook resumido")
+
+    base = df[cols].copy()
+
+    if "valor_esperado" in base.columns:
+        base = base.sort_values("valor_esperado", ascending=False)
+    elif "prioridade_execucao" in base.columns:
+        base = base.sort_values("prioridade_execucao", ascending=True)
+    elif "roi_unitario_calc" in base.columns:
+        base = base.sort_values("roi_unitario_calc", ascending=False)
+    elif "roi_unitario" in base.columns:
+        base = base.sort_values("roi_unitario", ascending=False)
+
+    base = base.head(30)
+
+    st.dataframe(base, use_container_width=True, hide_index=True)
 
 
 def render_aba_operacao(df):
@@ -894,7 +922,7 @@ except Exception as e:
 
 df_budget = criar_persona_risco(df_budget)
 df_score = criar_persona_risco(df_score)
-df_budget = adicionar_colunas_validacao_teste(df_score)
+df_score = adicionar_colunas_validacao_teste(df_score)
 
 df_filtrado = aplicar_filtros(df_budget)
 df_simulado = aplicar_simulacao_budget(df_filtrado)
