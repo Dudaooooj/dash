@@ -447,55 +447,92 @@ def render_aba_personas(df):
         st.info("Coluna persona_risco não disponível.")
         return
 
-    persona = df.groupby("persona_risco").agg(
-        clientes=("id_cliente_servico", "count"),
-        retorno_total=("valor_esperado", "sum"),
-        roi_medio=("roi_unitario_calc", "mean"),
-        score_medio=("prob_churn", "mean")
-    ).reset_index().sort_values("retorno_total", ascending=False)
+    metricas = {}
+
+    if "id_cliente_servico" in df.columns:
+        metricas["clientes"] = ("id_cliente_servico", "count")
+
+    if "valor_esperado" in df.columns:
+        metricas["retorno_total"] = ("valor_esperado", "sum")
+
+    if "roi_unitario_calc" in df.columns:
+        metricas["roi_medio"] = ("roi_unitario_calc", "mean")
+    elif "roi_unitario" in df.columns:
+        metricas["roi_medio"] = ("roi_unitario", "mean")
+
+    if "prob_churn" in df.columns:
+        metricas["score_medio"] = ("prob_churn", "mean")
+
+    if not metricas:
+        st.warning("Nenhuma métrica disponível para resumir personas.")
+        return
+
+    persona = (
+        df.groupby("persona_risco")
+        .agg(**metricas)
+        .reset_index()
+    )
+
+    if "retorno_total" in persona.columns:
+        persona = persona.sort_values("retorno_total", ascending=False)
+    elif "clientes" in persona.columns:
+        persona = persona.sort_values("clientes", ascending=False)
 
     col1, col2 = st.columns(2)
 
     with col1:
-        fig = px.bar(
-            persona,
-            x="persona_risco",
-            y="clientes",
-            text="clientes",
-            title="Clientes por Persona"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        if "clientes" in persona.columns:
+            fig = px.bar(
+                persona,
+                x="persona_risco",
+                y="clientes",
+                text="clientes",
+                title="Clientes por Persona"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        fig = px.bar(
-            persona,
-            x="persona_risco",
-            y="retorno_total",
-            text="retorno_total",
-            title="Retorno Esperado por Persona"
+        if "retorno_total" in persona.columns:
+            fig = px.bar(
+                persona,
+                x="persona_risco",
+                y="retorno_total",
+                text="retorno_total",
+                title="Retorno Esperado por Persona"
+            )
+            fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
+            st.plotly_chart(fig, use_container_width=True)
+        elif "score_medio" in persona.columns:
+            fig = px.bar(
+                persona,
+                x="persona_risco",
+                y="score_medio",
+                text="score_medio",
+                title="Score Médio por Persona"
+            )
+            fig.update_traces(texttemplate="%{text:.3f}", textposition="outside")
+            st.plotly_chart(fig, use_container_width=True)
+
+    if {"persona_risco", "estrategia", "id_cliente_servico"}.issubset(df.columns):
+        heat = df.pivot_table(
+            index="persona_risco",
+            columns="estrategia",
+            values="id_cliente_servico",
+            aggfunc="count",
+            fill_value=0
         )
-        fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
-        st.plotly_chart(fig, use_container_width=True)
 
-    heat = df.pivot_table(
-        index="persona_risco",
-        columns="estrategia",
-        values="id_cliente_servico",
-        aggfunc="count",
-        fill_value=0
-    )
+        if not heat.empty:
+            cols_presentes = [c for c in ORDEM_ESTRATEGIA if c in heat.columns]
+            heat = heat[cols_presentes]
 
-    if not heat.empty:
-        cols_presentes = [c for c in ORDEM_ESTRATEGIA if c in heat.columns]
-        heat = heat[cols_presentes]
-
-        fig = px.imshow(
-            heat,
-            text_auto=True,
-            aspect="auto",
-            title="Persona x Estratégia"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            fig = px.imshow(
+                heat,
+                text_auto=True,
+                aspect="auto",
+                title="Persona x Estratégia"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     st.dataframe(persona, use_container_width=True, hide_index=True)
 
