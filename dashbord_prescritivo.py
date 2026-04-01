@@ -10,80 +10,197 @@ st.set_page_config(page_title="Dashboard Prescritivo de Retenção", layout="wid
 st.markdown(
     """
     <style>
-    /* Cores do tema */
     :root {
         --primary: #1D4E69;
         --secondary: #6EA8BD;
         --accent: #F4A261;
         --danger: #D9534F;
         --success: #5CB85C;
-        --light: #F5F5F5;
+        --light: #F7F9FB;
+        --card: #FFFFFF;
+        --text: #1F2933;
+        --muted: #6B7280;
+        --border: #E5E7EB;
     }
-    
-    /* Customização geral */
+
+    /* Layout geral */
     .block-container {
-        max-width: 98%;
-        padding-top: 1.5rem;
-        padding-bottom: 1rem;
+        max-width: 96%;
+        padding-top: 1.2rem;
+        padding-bottom: 1.2rem;
         padding-left: 2rem;
         padding-right: 2rem;
     }
-    
-    /* Títulos */
+
+    /* Fundo principal */
+    .stApp {
+        background-color: var(--light);
+        color: var(--text);
+    }
+
+    /* Título principal */
     h1 {
-        color: #1D4E69;
-        border-bottom: 3px solid #F4A261;
-        padding-bottom: 0.5rem;
+        color: var(--primary);
+        font-weight: 800;
+        font-size: 2.1rem;
+        padding-bottom: 0.35rem;
+        margin-bottom: 0.8rem;
+        border-bottom: 3px solid var(--accent);
     }
-    
-    h2 {
-        color: #1D4E69;
-        margin-top: 1.5rem;
+
+    /* Subtítulos */
+    h2, h3 {
+        color: var(--primary);
+        font-weight: 700;
+        margin-top: 1rem;
+        margin-bottom: 0.4rem;
     }
-    
-    h3 {
-        color: #6EA8BD;
+
+    h4 {
+        color: var(--secondary);
+        font-weight: 600;
+        margin-top: 0.8rem;
+        margin-bottom: 0.3rem;
     }
-    
-    /* Métricas (KPIs) */
+
+    /* Texto menor / legenda */
+    .stCaption, p, label {
+        color: var(--text);
+    }
+
+    /* KPIs */
     [data-testid="metric-container"] {
-        background-color: #F5F5F5;
-        border-radius: 8px;
-        border-left: 4px solid #1D4E69;
-        padding: 1rem;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-left: 5px solid var(--primary);
+        padding: 1rem 1rem 0.9rem 1rem;
+        border-radius: 14px;
+        box-shadow: 0 2px 10px rgba(29, 78, 105, 0.06);
     }
-    
-    /* Cards e caixas */
-    .css-1r6slsn {
-        background-color: #FAFAFA;
-        border-radius: 8px;
+
+    [data-testid="metric-container"] > div {
+        color: var(--text);
     }
-    
-    /* Abas */
+
+    /* Tabs */
     [data-testid="stTabs"] {
-        background-color: #F5F5F5;
+        background: transparent;
     }
-    
-    /* Filtros na sidebar */
-    .css-18e3th9 {
-        padding-top: 1rem;
+
+    button[kind="tab"] {
+        border-radius: 10px 10px 0 0;
+        padding: 0.6rem 1rem;
+        border: none;
+        color: var(--muted);
+        background-color: #EEF3F7;
+        margin-right: 0.25rem;
+        font-weight: 600;
     }
-    
-    .streamlit-expanderHeader {
-        background-color: #1D4E69;
+
+    button[kind="tab"][aria-selected="true"] {
+        background-color: var(--primary);
         color: white;
     }
-    
-    /* Tabelas */
-    .dataframe {
-        font-size: 0.9rem;
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #FFFFFF;
+        border-right: 1px solid var(--border);
     }
-    
+
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 1rem;
+    }
+
+    /* Inputs */
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"] > div,
+    .stNumberInput > div > div,
+    .stTextInput > div > div {
+        border-radius: 10px !important;
+        border: 1px solid var(--border) !important;
+    }
+
+    /* Slider */
+    .stSlider [role="slider"] {
+        background-color: var(--primary);
+        border: 2px solid var(--primary);
+    }
+
+    /* Botões */
+    .stButton > button,
+    .stDownloadButton > button {
+        background-color: var(--primary);
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 0.55rem 1rem;
+        font-weight: 600;
+    }
+
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
+        background-color: var(--secondary);
+        color: white;
+    }
+
+    /* Expanders */
+    details {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.3rem 0.6rem;
+    }
+
+    summary {
+        font-weight: 600;
+        color: var(--primary);
+    }
+
+    /* Dataframes / tabelas */
+    .stDataFrame, .dataframe {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        background-color: white;
+    }
+
+    /* Alertas */
+    [data-testid="stInfo"] {
+        border-radius: 12px;
+        border-left: 5px solid var(--secondary);
+    }
+
+    [data-testid="stWarning"] {
+        border-radius: 12px;
+        border-left: 5px solid var(--accent);
+    }
+
+    [data-testid="stError"] {
+        border-radius: 12px;
+        border-left: 5px solid var(--danger);
+    }
+
+    [data-testid="stSuccess"] {
+        border-radius: 12px;
+        border-left: 5px solid var(--success);
+    }
+
+    /* Separadores */
+    hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin-top: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Esconde menu/footer padrão se quiser visual mais limpo */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
     </style>
     """,
     unsafe_allow_html=True
 )
-
 
 # =========================================================
 # CONFIG
@@ -972,8 +1089,8 @@ def render_aba_validacao_target(df_score):
 # =========================================================
 # APP
 # =========================================================
-st.title("📊 Dashboard Prescritivo de Retenção")
-st.caption("Versão teste reorganizada para responder melhor às perguntas de persona, território e ação.")
+st.title("Dashboard Prescritivo de Retenção")
+st.caption("Versão da analise prescritiva para direcionar ações de retenção com base em modelo de churn e regras de negócio definidas.")
 
 try:
     df_budget = carregar_dados(CAMINHO_BUDGET)
