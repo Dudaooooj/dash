@@ -10,17 +10,80 @@ st.set_page_config(page_title="Dashboard Prescritivo de Retenção", layout="wid
 st.markdown(
     """
     <style>
+    /* Cores do tema */
+    :root {
+        --primary: #1D4E69;
+        --secondary: #6EA8BD;
+        --accent: #F4A261;
+        --danger: #D9534F;
+        --success: #5CB85C;
+        --light: #F5F5F5;
+    }
+    
+    /* Customização geral */
     .block-container {
         max-width: 98%;
-        padding-top: 1rem;
+        padding-top: 1.5rem;
         padding-bottom: 1rem;
         padding-left: 2rem;
         padding-right: 2rem;
     }
+    
+    /* Títulos */
+    h1 {
+        color: #1D4E69;
+        border-bottom: 3px solid #F4A261;
+        padding-bottom: 0.5rem;
+    }
+    
+    h2 {
+        color: #1D4E69;
+        margin-top: 1.5rem;
+    }
+    
+    h3 {
+        color: #6EA8BD;
+    }
+    
+    /* Métricas (KPIs) */
+    [data-testid="metric-container"] {
+        background-color: #F5F5F5;
+        border-radius: 8px;
+        border-left: 4px solid #1D4E69;
+        padding: 1rem;
+    }
+    
+    /* Cards e caixas */
+    .css-1r6slsn {
+        background-color: #FAFAFA;
+        border-radius: 8px;
+    }
+    
+    /* Abas */
+    [data-testid="stTabs"] {
+        background-color: #F5F5F5;
+    }
+    
+    /* Filtros na sidebar */
+    .css-18e3th9 {
+        padding-top: 1rem;
+    }
+    
+    .streamlit-expanderHeader {
+        background-color: #1D4E69;
+        color: white;
+    }
+    
+    /* Tabelas */
+    .dataframe {
+        font-size: 0.9rem;
+    }
+    
     </style>
     """,
     unsafe_allow_html=True
 )
+
 
 # =========================================================
 # CONFIG
