@@ -543,7 +543,7 @@ def render_aba_geografia(df):
     col1, col2 = st.columns(2)
 
     with col1:
-        if "cidade" in df.columns:
+        if {"cidade", "valor_esperado"}.issubset(df.columns):
             top_cidades = (
                 df.groupby("cidade")["valor_esperado"]
                 .sum()
@@ -562,8 +562,31 @@ def render_aba_geografia(df):
             fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
             st.plotly_chart(fig, use_container_width=True)
 
+        elif "cidade" in df.columns:
+            top_cidades = (
+                df["cidade"]
+                .astype(str)
+                .value_counts()
+                .head(10)
+                .reset_index()
+            )
+            top_cidades.columns = ["cidade", "clientes"]
+
+            fig = px.bar(
+                top_cidades.sort_values("clientes"),
+                x="clientes",
+                y="cidade",
+                orientation="h",
+                text="clientes",
+                title="Top 10 Cidades por Volume de Clientes"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.info("Coluna cidade não disponível.")
+
     with col2:
-        if "bairro" in df.columns:
+        if {"bairro", "valor_esperado"}.issubset(df.columns):
             top_bairros = (
                 df.groupby("bairro")["valor_esperado"]
                 .sum()
@@ -582,6 +605,29 @@ def render_aba_geografia(df):
             fig.update_traces(texttemplate="R$ %{text:,.0f}", textposition="outside")
             st.plotly_chart(fig, use_container_width=True)
 
+        elif "bairro" in df.columns:
+            top_bairros = (
+                df["bairro"]
+                .astype(str)
+                .value_counts()
+                .head(10)
+                .reset_index()
+            )
+            top_bairros.columns = ["bairro", "clientes"]
+
+            fig = px.bar(
+                top_bairros.sort_values("clientes"),
+                x="clientes",
+                y="bairro",
+                orientation="h",
+                text="clientes",
+                title="Top 10 Bairros por Volume de Clientes"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        else:
+            st.info("Coluna bairro não disponível.")
+
     if {"regiao", "estrategia", "id_cliente_servico"}.issubset(df.columns):
         reg = df.pivot_table(
             index="regiao",
@@ -590,6 +636,7 @@ def render_aba_geografia(df):
             aggfunc="count",
             fill_value=0
         )
+
         if not reg.empty:
             cols_presentes = [c for c in ORDEM_ESTRATEGIA if c in reg.columns]
             reg = reg[cols_presentes]
